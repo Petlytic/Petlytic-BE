@@ -68,43 +68,31 @@ public class AuthenticationService {
     public LoginResponse refreshToken(RefreshTokenDTO input) {
         String incomingRefreshToken = input.getRefreshToken();
 
-        // 1. Giải mã token để lấy email (Nếu token sai format/hết hạn -> JwtService tự throw lỗi)
         String userEmail = jwtService.extractUsername(incomingRefreshToken);
 
-        // 2. Tìm User trong DB
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException(ResourceType.USER, "email",  userEmail));
 
-        // 3. Kiểm tra Token này có tồn tại trong DB và CHƯA bị thu hồi không?
         RefreshToken currentToken = refreshTokenRepository.findByToken(incomingRefreshToken)
                 .orElseThrow(() -> new RuntimeException("Refresh token not found"));
 
         if (currentToken.isRevoked()) {
-            // Tình huống nguy hiểm: Token này đã bị thu hồi mà vẫn mang đi dùng -> Có thể là Hacker!
-            // Hành động: Thu hồi toàn bộ token khác của user này để bắt user đăng nhập lại từ đầu.
             revokeAllUserTokens(user);
             throw new RuntimeException("Refresh token was revoked. Please login again.");
         }
 
-        // 4. Kiểm tra hạn sử dụng (Logic nghiệp vụ bổ sung cho chắc)
         if (currentToken.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw new RuntimeException("Refresh token expired");
         }
 
-        // --- BẮT ĐẦU XOAY VÒNG (ROTATION) ---
-
-        // 5. Thu hồi token cũ
         currentToken.setRevoked(true);
         refreshTokenRepository.save(currentToken);
 
-        // 6. Tạo cặp token mới
         String newAccessToken = jwtService.generateToken(user);
         String newRefreshToken = jwtService.generateRefreshToken(user);
 
-        // 7. Lưu Refresh Token mới xuống DB
         saveUserRefreshToken(user, newRefreshToken);
 
-        // 8. Trả về cho Client
         return LoginResponse.builder()
                 .accessToken(newAccessToken)
                 .refreshToken(newRefreshToken)
@@ -112,18 +100,16 @@ public class AuthenticationService {
                 .build();
     }
 
-    // Hàm phụ trợ để lưu token (Tách ra cho gọn)
     private void saveUserRefreshToken(User user, String jwtToken) {
         var token = RefreshToken.builder()
                 .user(user)
                 .token(jwtToken)
                 .revoked(false)
-                .expiresAt(LocalDateTime.now().plusDays(7)) // Set cứng hoặc lấy từ config
+                .expiresAt(LocalDateTime.now().plusDays(7))
                 .build();
         refreshTokenRepository.save(token);
     }
 
-    // Hàm phụ trợ để thu hồi tất cả token (Dùng khi Login hoặc phát hiện nghi vấn)
     private void revokeAllUserTokens(User user) {
         var validUserTokens = refreshTokenRepository.findAllValidTokenByUser(user.getId());
         if (validUserTokens.isEmpty()) return;
@@ -149,15 +135,12 @@ public class AuthenticationService {
                 )
         );
 
-        // 2. Tạo Token (Access + Refresh)
         String accessToken = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
 
-        // 3. Xử lý lưu Token (Xoay vòng/Dọn dẹp token cũ)
         revokeAllUserTokens(user);
         saveUserRefreshToken(user, refreshToken);
 
-        // 4. Trả về LoginResponse thay vì User
         return LoginResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
