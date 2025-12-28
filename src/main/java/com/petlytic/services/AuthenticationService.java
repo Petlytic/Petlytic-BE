@@ -40,7 +40,7 @@ public class AuthenticationService {
     @Transactional
     public User signup(RegisterUserDTO input) {
         if(userRepository.existsByEmail(input.getEmail())) {
-            throw new EmailAlreadyExistsException("Email đã tồn tại: " + input.getEmail());
+            throw new EmailAlreadyExistsException("Email existed: " + input.getEmail());
         }
 
         User user = User.builder()
