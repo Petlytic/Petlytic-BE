@@ -8,6 +8,11 @@ import com.petlytic.dtos.responses.LoginResponse;
 import com.petlytic.models.User;
 import com.petlytic.services.AuthenticationService;
 import com.petlytic.services.JwtService;
+
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+import org.springframework.web.bind.annotation.CookieValue;
+
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -26,9 +31,21 @@ public class AuthenticationController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> authenticate(@RequestBody LoginUserDTO loginUserDto){
+    public ResponseEntity<LoginResponse> authenticate(@RequestBody LoginUserDTO loginUserDto) {
         LoginResponse loginResponse = authenticationService.authenticate(loginUserDto);
-        return ResponseEntity.ok(loginResponse);
+
+        // Tạo HttpOnly Cookie
+        ResponseCookie cookie = ResponseCookie.from("refresh_token", loginResponse.getRefreshToken())
+                .httpOnly(true)
+                .secure(true)
+                .path("/")
+                .maxAge(604800)
+                .sameSite("Strict")
+                .build();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(loginResponse);
     }
 
     @PostMapping("/verify")
@@ -52,7 +69,24 @@ public class AuthenticationController {
     }
 
     @PostMapping("/refresh-token")
-    public ResponseEntity<LoginResponse> refreshToken(@RequestBody RefreshTokenDTO refreshTokenDTO) {
-        return ResponseEntity.ok(authenticationService.refreshToken(refreshTokenDTO));
+    public ResponseEntity<LoginResponse> refreshToken(
+            @CookieValue(name = "refresh_token") String refreshToken
+    ) {
+        RefreshTokenDTO refreshTokenDTO = new RefreshTokenDTO();
+        refreshTokenDTO.setRefreshToken(refreshToken);
+
+        LoginResponse loginResponse = authenticationService.refreshToken(refreshTokenDTO);
+
+        ResponseCookie newCookie = ResponseCookie.from("refresh_token", loginResponse.getRefreshToken())
+                .httpOnly(true)
+                .secure(true)
+                .path("/")
+                .maxAge(604800)
+                .sameSite("Strict")
+                .build();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, newCookie.toString())
+                .body(loginResponse);
     }
 }
