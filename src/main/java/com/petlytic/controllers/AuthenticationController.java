@@ -1,9 +1,6 @@
 package com.petlytic.controllers;
 
-import com.petlytic.dtos.requests.LoginUserDTO;
-import com.petlytic.dtos.requests.RefreshTokenDTO;
-import com.petlytic.dtos.requests.RegisterUserDTO;
-import com.petlytic.dtos.requests.VerifyUserDTO;
+import com.petlytic.dtos.requests.*;
 import com.petlytic.dtos.responses.LoginResponse;
 import com.petlytic.models.User;
 import com.petlytic.services.AuthenticationService;
@@ -88,5 +85,10 @@ public class AuthenticationController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, newCookie.toString())
                 .body(loginResponse);
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<LoginResponse> loginWithGoogle(@RequestBody GoogleLoginDTO googleLoginDTO) {
+        return ResponseEntity.ok(authenticationService.loginWithGoogle(googleLoginDTO));
     }
 }
