@@ -1,0 +1,40 @@
+services:
+  # Database Service
+  db:
+    image: postgres:15-alpine
+    container_name: petlytic-db
+    restart: always
+    environment:
+      # Configure local database credentials
+      POSTGRES_DB: postgres
+      POSTGRES_USER: user_petlytic
+      POSTGRES_PASSWORD: password_petlytic
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persist database data even if the container is removed
+      - postgres_data:/var/lib/postgresql/data
+
+  # Spring Boot Backend Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: petlytic-be
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      # Override environment variables to connect to the local Docker database container
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/postgres
+      - SPRING_DATASOURCE_USERNAME=user_petlytic
+      - SPRING_DATASOURCE_PASSWORD=password_petlytic
+      # Other variables like JWT_SECRET_KEY and APP_PASSWORD will be loaded from the env_file
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+# Define persistent volumes
+volumes:
+  postgres_data:
