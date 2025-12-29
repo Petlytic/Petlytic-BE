@@ -1,9 +1,10 @@
 package com.petlytic.services;
 
-import com.petlytic.dtos.requests.LoginUserDTO;
-import com.petlytic.dtos.requests.RefreshTokenDTO;
-import com.petlytic.dtos.requests.RegisterUserDTO;
-import com.petlytic.dtos.requests.VerifyUserDTO;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.gson.GsonFactory;
+import com.petlytic.dtos.requests.*;
 import com.petlytic.dtos.responses.LoginResponse;
 import com.petlytic.exceptions.EmailAlreadyExistsException;
 import com.petlytic.exceptions.ResourceNotFoundException;
@@ -18,12 +19,14 @@ import com.petlytic.repositories.VerificationTokenRepository;
 import jakarta.mail.MessagingException;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.Random;
 
 @Service
@@ -36,6 +39,61 @@ public class AuthenticationService {
     private final AuthenticationManager authenticationManager;
     private final EmailService emailService;
     private final JwtService jwtService;
+
+    @Value("${spring.security.oauth2.client.registration.google.client-id}")
+    private String googleClientId;
+
+    public LoginResponse loginWithGoogle(GoogleLoginDTO input) {
+        try {
+            GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), new GsonFactory())
+                    .setAudience(Collections.singletonList(googleClientId))
+                    .build();
+
+            GoogleIdToken idToken = verifier.verify(input.getIdToken());
+            if (idToken == null) {
+                throw new RuntimeException("Invalid Google ID Token");
+            }
+
+            GoogleIdToken.Payload payload = idToken.getPayload();
+            String email = payload.getEmail();
+            String name = (String) payload.get("name");
+            String avatarUrl = (String) payload.get("picture");
+
+            User user = userRepository.findByEmail(email).orElse(null);
+
+            if (user == null) {
+                user = User.builder()
+                        .username(name)
+                        .email(email)
+                        .password(null)
+                        .role(Role.CUSTOMER)
+                        .avatarUrl(avatarUrl)
+                        .active(true)
+                        .build();
+                user = userRepository.save(user);
+            } else {
+                if (!user.isEnabled()) {
+                    user.setActive(true);
+                    userRepository.save(user);
+                }
+            }
+
+            String accessToken = jwtService.generateToken(user);
+            String refreshToken = jwtService.generateRefreshToken(user);
+
+            revokeAllUserTokens(user);
+            saveUserRefreshToken(user, refreshToken);
+
+            return LoginResponse.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .expiresIn(jwtService.getExpirationTime())
+                    .build();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Google Login Failed: " + e.getMessage());
+        }
+    }
 
     @Transactional
     public User signup(RegisterUserDTO input) {
@@ -101,11 +159,13 @@ public class AuthenticationService {
     }
 
     private void saveUserRefreshToken(User user, String jwtToken) {
+        long expirationInMillis = jwtService.getRefreshTokenExpiration();
+
         var token = RefreshToken.builder()
                 .user(user)
                 .token(jwtToken)
                 .revoked(false)
-                .expiresAt(LocalDateTime.now().plusDays(7))
+                .expiresAt(LocalDateTime.now().plusNanos(expirationInMillis * 1_000_000))
                 .build();
         refreshTokenRepository.save(token);
     }
