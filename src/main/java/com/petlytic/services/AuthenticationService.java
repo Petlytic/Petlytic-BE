@@ -6,8 +6,9 @@ import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.gson.GsonFactory;
 import com.petlytic.dtos.requests.*;
 import com.petlytic.dtos.responses.LoginResponse;
-import com.petlytic.exceptions.EmailAlreadyExistsException;
-import com.petlytic.exceptions.ResourceNotFoundException;
+import com.petlytic.dtos.responses.UserResponseDTO;
+import com.petlytic.exceptions.*;
+import com.petlytic.mapper.UserMapper;
 import com.petlytic.models.RefreshToken;
 import com.petlytic.models.User;
 import com.petlytic.models.VerificationToken;
@@ -16,15 +17,21 @@ import com.petlytic.models.enums.Role;
 import com.petlytic.repositories.RefreshTokenRepository;
 import com.petlytic.repositories.UserRepository;
 import com.petlytic.repositories.VerificationTokenRepository;
+import jakarta.annotation.PostConstruct;
 import jakarta.mail.MessagingException;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Random;
@@ -39,19 +46,27 @@ public class AuthenticationService {
     private final AuthenticationManager authenticationManager;
     private final EmailService emailService;
     private final JwtService jwtService;
+    private final UserMapper userMapper;
 
     @Value("${spring.security.oauth2.client.registration.google.client-id}")
     private String googleClientId;
 
+    private GoogleIdTokenVerifier verifier;
+
+    @PostConstruct
+    public void init() {
+        this.verifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), new GsonFactory())
+                .setAudience(Collections.singletonList(googleClientId))
+                .build();
+    }
+
+    @Transactional
     public LoginResponse loginWithGoogle(GoogleLoginDTO input) {
         try {
-            GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), new GsonFactory())
-                    .setAudience(Collections.singletonList(googleClientId))
-                    .build();
-
             GoogleIdToken idToken = verifier.verify(input.getIdToken());
+
             if (idToken == null) {
-                throw new RuntimeException("Invalid Google ID Token");
+                throw new BadCredentialsException("Invalid Google ID Token");
             }
 
             GoogleIdToken.Payload payload = idToken.getPayload();
@@ -72,8 +87,19 @@ public class AuthenticationService {
                         .build();
                 user = userRepository.save(user);
             } else {
+                boolean isChanged = false;
+
                 if (!user.isEnabled()) {
                     user.setActive(true);
+                    isChanged = true;
+                }
+
+                if (avatarUrl != null && !avatarUrl.equals(user.getAvatarUrl())) {
+                    user.setAvatarUrl(avatarUrl);
+                    isChanged = true;
+                }
+
+                if (isChanged) {
                     userRepository.save(user);
                 }
             }
@@ -90,24 +116,23 @@ public class AuthenticationService {
                     .expiresIn(jwtService.getExpirationTime())
                     .build();
 
+        } catch (GeneralSecurityException | IOException e) {
+            throw new BadCredentialsException("Google verification failed");
         } catch (Exception e) {
-            throw new RuntimeException("Google Login Failed: " + e.getMessage());
+            throw new RuntimeException("Internal Error during Google Login", e);
         }
     }
 
     @Transactional
-    public User signup(RegisterUserDTO input) {
+    public UserResponseDTO signup(RegisterUserDTO input) {
         if(userRepository.existsByEmail(input.getEmail())) {
             throw new EmailAlreadyExistsException("Email existed: " + input.getEmail());
         }
 
-        User user = User.builder()
-                .username(input.getUsername())
-                .email(input.getEmail())
-                .password(passwordEncoder.encode(input.getPassword()))
-                .role(Role.CUSTOMER)
-                .active(false)
-                .build();
+        User user = userMapper.toUser(input);
+        user.setPassword(passwordEncoder.encode(input.getPassword()));
+        user.setRole(Role.CUSTOMER);
+        user.setActive(false);
 
         User savedUser = userRepository.save(user);
         String code = generateVerificationCode();
@@ -120,27 +145,26 @@ public class AuthenticationService {
 
         sendVerificationEmail(user, code);
 
-        return savedUser;
+        return userMapper.toUserResponse(savedUser);
     }
 
     public LoginResponse refreshToken(RefreshTokenDTO input) {
         String incomingRefreshToken = input.getRefreshToken();
-
         String userEmail = jwtService.extractUsername(incomingRefreshToken);
 
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException(ResourceType.USER, "email",  userEmail));
 
         RefreshToken currentToken = refreshTokenRepository.findByToken(incomingRefreshToken)
-                .orElseThrow(() -> new RuntimeException("Refresh token not found"));
+                .orElseThrow(() -> new ResourceNotFoundException(ResourceType.TOKEN, "token", incomingRefreshToken));
 
         if (currentToken.isRevoked()) {
             revokeAllUserTokens(user);
-            throw new RuntimeException("Refresh token was revoked. Please login again.");
+            throw new BadCredentialsException("Refresh token was revoked. Please login again.");
         }
 
         if (currentToken.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new RuntimeException("Refresh token expired");
+            throw new RefreshTokenExpiredException("Refresh token expired");
         }
 
         currentToken.setRevoked(true);
@@ -158,42 +182,22 @@ public class AuthenticationService {
                 .build();
     }
 
-    private void saveUserRefreshToken(User user, String jwtToken) {
-        long expirationInMillis = jwtService.getRefreshTokenExpiration();
-
-        var token = RefreshToken.builder()
-                .user(user)
-                .token(jwtToken)
-                .revoked(false)
-                .expiresAt(LocalDateTime.now().plusNanos(expirationInMillis * 1_000_000))
-                .build();
-        refreshTokenRepository.save(token);
-    }
-
-    private void revokeAllUserTokens(User user) {
-        var validUserTokens = refreshTokenRepository.findAllValidTokenByUser(user.getId());
-        if (validUserTokens.isEmpty()) return;
-
-        validUserTokens.forEach(token -> {
-            token.setRevoked(true);
-        });
-        refreshTokenRepository.saveAll(validUserTokens);
-    }
-
     public LoginResponse authenticate(LoginUserDTO input) {
-        User user = userRepository.findByEmail(input.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException(ResourceType.USER, "email",  input.getEmail()));
-
-        if (!user.isEnabled()) {
-            throw new RuntimeException("Account not verified. Please verify your account.");
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            input.getEmail(),
+                            input.getPassword()
+                    )
+            );
+        } catch (DisabledException e) {
+            throw new AccountNotVerifiedException("Account not activated. Please check your email.");
+        } catch (BadCredentialsException e) {
+            throw new BadCredentialsException("Email or password is not correct.");
         }
 
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        input.getEmail(),
-                        input.getPassword()
-                )
-        );
+        User user = (User) authentication.getPrincipal();
 
         String accessToken = jwtService.generateToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
@@ -214,15 +218,14 @@ public class AuthenticationService {
                 .orElseThrow(() -> new ResourceNotFoundException(ResourceType.USER, "email",  input.getEmail()));
 
         VerificationToken token = verificationTokenRepository.findByUserAndVerificationCode(user, input.getVerificationCode())
-                .orElseThrow(() -> new RuntimeException("Invalid verification code"));
+                .orElseThrow(() -> new BadCredentialsException("Invalid verification code"));
 
         if (token.getVerificationExpiration().isBefore(LocalDateTime.now())) {
-            throw new RuntimeException("Verification code has expired");
+            throw new BadCredentialsException("Verification code has expired");
         }
 
         user.setActive(true);
         userRepository.save(user);
-
         verificationTokenRepository.delete(token);
     }
 
@@ -232,7 +235,7 @@ public class AuthenticationService {
                 .orElseThrow(() -> new ResourceNotFoundException(ResourceType.USER, "email",  email));
 
         if (user.isEnabled()) {
-            throw new RuntimeException("Account is already verified");
+            throw new OperationNotPermittedException("Account is already verified");
         }
 
         verificationTokenRepository.deleteAllByUser(user);
@@ -276,5 +279,27 @@ public class AuthenticationService {
         Random random = new Random();
         int code = random.nextInt(900000) + 100000;
         return String.valueOf(code);
+    }
+
+    private void saveUserRefreshToken(User user, String jwtToken) {
+        long expirationInMillis = jwtService.getRefreshTokenExpiration();
+
+        var token = RefreshToken.builder()
+                .user(user)
+                .token(jwtToken)
+                .revoked(false)
+                .expiresAt(LocalDateTime.now().plusNanos(expirationInMillis * 1_000_000))
+                .build();
+        refreshTokenRepository.save(token);
+    }
+
+    private void revokeAllUserTokens(User user) {
+        var validUserTokens = refreshTokenRepository.findAllValidTokenByUser(user.getId());
+        if (validUserTokens.isEmpty()) return;
+
+        validUserTokens.forEach(token -> {
+            token.setRevoked(true);
+        });
+        refreshTokenRepository.saveAll(validUserTokens);
     }
 }

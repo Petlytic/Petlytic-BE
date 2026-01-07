@@ -8,7 +8,8 @@ public enum ResourceType {
     ROLE("Role"),
     PRODUCT("Product"),
     ORDER("Order"),
-    VERIFICATION_TOKEN("Verification Token");
+    VERIFICATION_TOKEN("Verification Token"),
+    TOKEN("Token");
 
     private final String label;
 
