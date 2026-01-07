@@ -57,4 +57,30 @@ public class GlobalExceptionHandler {
 
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
+
+    @ExceptionHandler(AccountNotVerifiedException.class)
+    public ResponseEntity<Object> handleAccountNotVerified(AccountNotVerifiedException ex) {
+        log.error("Account Not Verified: {}", ex.getMessage());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now());
+        response.put("status", HttpStatus.FORBIDDEN.value());
+        response.put("error", "Account Not Verified");
+        response.put("message", ex.getMessage());
+
+        return  new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
+    }
+
+    @ExceptionHandler(AccountNotVerifiedException.class)
+    public ResponseEntity<Object> handleRefreshTokenExpired(RefreshTokenExpiredException ex) {
+        log.error("Refresh Token Expired: {}", ex.getMessage());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now());
+        response.put("status", HttpStatus.FORBIDDEN.value());
+        response.put("error", "Refresh Token Expired");
+        response.put("message", ex.getMessage());
+
+        return  new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
+    }
 }

@@ -2,9 +2,8 @@ package com.petlytic.controllers;
 
 import com.petlytic.dtos.requests.*;
 import com.petlytic.dtos.responses.LoginResponse;
-import com.petlytic.models.User;
+import com.petlytic.dtos.responses.UserResponseDTO;
 import com.petlytic.services.AuthenticationService;
-import com.petlytic.services.JwtService;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
@@ -22,8 +21,8 @@ public class AuthenticationController {
     private final AuthenticationService authenticationService;
 
     @PostMapping("/signup")
-    public ResponseEntity<User> register(@RequestBody @Valid RegisterUserDTO registerUserDto) {
-        User registeredUser = authenticationService.signup(registerUserDto);
+    public ResponseEntity<UserResponseDTO> register(@RequestBody @Valid RegisterUserDTO registerUserDto) {
+        UserResponseDTO registeredUser = authenticationService.signup(registerUserDto);
         return ResponseEntity.ok(registeredUser);
     }
 
@@ -31,7 +30,7 @@ public class AuthenticationController {
     public ResponseEntity<LoginResponse> authenticate(@RequestBody LoginUserDTO loginUserDto) {
         LoginResponse loginResponse = authenticationService.authenticate(loginUserDto);
 
-        // Tạo HttpOnly Cookie
+        // Create HttpOnly Cookie
         ResponseCookie cookie = ResponseCookie.from("refresh_token", loginResponse.getRefreshToken())
                 .httpOnly(true)
                 .secure(true)
