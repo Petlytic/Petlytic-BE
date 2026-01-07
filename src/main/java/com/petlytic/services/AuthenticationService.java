@@ -12,6 +12,7 @@ import com.petlytic.mapper.UserMapper;
 import com.petlytic.models.RefreshToken;
 import com.petlytic.models.User;
 import com.petlytic.models.VerificationToken;
+import com.petlytic.models.enums.ErrorCode;
 import com.petlytic.models.enums.ResourceType;
 import com.petlytic.models.enums.Role;
 import com.petlytic.repositories.RefreshTokenRepository;
@@ -21,6 +22,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.mail.MessagingException;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -36,6 +38,7 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Random;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthenticationService {
@@ -66,7 +69,7 @@ public class AuthenticationService {
             GoogleIdToken idToken = verifier.verify(input.getIdToken());
 
             if (idToken == null) {
-                throw new BadCredentialsException("Invalid Google ID Token");
+                throw new AppException(ErrorCode.GOOGLE_LOGIN_FAILED);
             }
 
             GoogleIdToken.Payload payload = idToken.getPayload();
@@ -117,16 +120,15 @@ public class AuthenticationService {
                     .build();
 
         } catch (GeneralSecurityException | IOException e) {
-            throw new BadCredentialsException("Google verification failed");
-        } catch (Exception e) {
-            throw new RuntimeException("Internal Error during Google Login", e);
+            log.error("Google Login Error: ", e);
+            throw new AppException(ErrorCode.GOOGLE_LOGIN_FAILED);
         }
     }
 
     @Transactional
     public UserResponseDTO signup(RegisterUserDTO input) {
         if(userRepository.existsByEmail(input.getEmail())) {
-            throw new EmailAlreadyExistsException("Email existed: " + input.getEmail());
+            throw new AppException(ErrorCode.USER_EXISTED);
         }
 
         User user = userMapper.toUser(input);
@@ -153,18 +155,18 @@ public class AuthenticationService {
         String userEmail = jwtService.extractUsername(incomingRefreshToken);
 
         User user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new ResourceNotFoundException(ResourceType.USER, "email",  userEmail));
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, ResourceType.USER));
 
         RefreshToken currentToken = refreshTokenRepository.findByToken(incomingRefreshToken)
-                .orElseThrow(() -> new ResourceNotFoundException(ResourceType.TOKEN, "token", incomingRefreshToken));
+                .orElseThrow(() -> new AppException(ErrorCode.TOKEN_INVALID));
 
         if (currentToken.isRevoked()) {
             revokeAllUserTokens(user);
-            throw new BadCredentialsException("Refresh token was revoked. Please login again.");
+            throw new AppException(ErrorCode.TOKEN_REVOKED);
         }
 
         if (currentToken.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new RefreshTokenExpiredException("Refresh token expired");
+            throw new AppException(ErrorCode.TOKEN_EXPIRED);
         }
 
         currentToken.setRevoked(true);
@@ -183,45 +185,45 @@ public class AuthenticationService {
     }
 
     public LoginResponse authenticate(LoginUserDTO input) {
-        Authentication authentication;
         try {
-            authentication = authenticationManager.authenticate(
+            Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
                             input.getEmail(),
                             input.getPassword()
                     )
             );
+
+            User user = (User) authentication.getPrincipal();
+            String accessToken = jwtService.generateToken(user);
+            String refreshToken = jwtService.generateRefreshToken(user);
+
+            revokeAllUserTokens(user);
+            saveUserRefreshToken(user, refreshToken);
+
+            return LoginResponse.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .expiresIn(jwtService.getExpirationTime())
+                    .build();
+
         } catch (DisabledException e) {
-            throw new AccountNotVerifiedException("Account not activated. Please check your email.");
+            throw new AppException(ErrorCode.NOT_VERIFIED);
+
         } catch (BadCredentialsException e) {
-            throw new BadCredentialsException("Email or password is not correct.");
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
-
-        User user = (User) authentication.getPrincipal();
-
-        String accessToken = jwtService.generateToken(user);
-        String refreshToken = jwtService.generateRefreshToken(user);
-
-        revokeAllUserTokens(user);
-        saveUserRefreshToken(user, refreshToken);
-
-        return LoginResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .expiresIn(jwtService.getExpirationTime())
-                .build();
     }
 
     @Transactional
     public void verifyUser(VerifyUserDTO input) {
         User user = userRepository.findByEmail(input.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException(ResourceType.USER, "email",  input.getEmail()));
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, ResourceType.USER));
 
         VerificationToken token = verificationTokenRepository.findByUserAndVerificationCode(user, input.getVerificationCode())
-                .orElseThrow(() -> new BadCredentialsException("Invalid verification code"));
+                .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY, "Verification Code"));
 
         if (token.getVerificationExpiration().isBefore(LocalDateTime.now())) {
-            throw new BadCredentialsException("Verification code has expired");
+            throw new AppException(ErrorCode.CODE_EXPIRED);
         }
 
         user.setActive(true);
@@ -232,10 +234,10 @@ public class AuthenticationService {
     @Transactional
     public void resendVerificationCode(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException(ResourceType.USER, "email",  email));
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, ResourceType.USER));
 
         if (user.isEnabled()) {
-            throw new OperationNotPermittedException("Account is already verified");
+            throw new AppException(ErrorCode.ACCOUNT_ALREADY_VERIFIED);
         }
 
         verificationTokenRepository.deleteAllByUser(user);
@@ -251,9 +253,18 @@ public class AuthenticationService {
         sendVerificationEmail(user, code);
     }
 
+    public void logout(String refreshToken) {
+        var storedToken = refreshTokenRepository.findByToken(refreshToken)
+                .orElse(null);
+
+        if (storedToken != null) {
+            storedToken.setRevoked(true);
+            refreshTokenRepository.save(storedToken);
+        }
+    }
+
     private void sendVerificationEmail(User user, String verificationCode) {
         String subject = "Account Verification";
-
         String htmlMessage = "<html>"
                 + "<body style=\"font-family: Arial, sans-serif;\">"
                 + "<div style=\"background-color: #f5f5f5; padding: 20px;\">"
@@ -270,8 +281,8 @@ public class AuthenticationService {
         try {
             emailService.sendVerificationEmail(user.getEmail(), subject, htmlMessage);
         } catch (MessagingException e) {
-            // Handle email sending exception
-            e.printStackTrace();
+            log.error("Failed to send email to {}", user.getEmail(), e);
+            throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION);
         }
     }
 
