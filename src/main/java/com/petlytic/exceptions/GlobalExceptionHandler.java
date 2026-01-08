@@ -1,86 +1,59 @@
 package com.petlytic.exceptions;
 
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
+import com.petlytic.dtos.responses.ApiResponse;
+import com.petlytic.models.enums.ErrorCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
-@Slf4j
-@ControllerAdvice
+@RestControllerAdvice
 public class GlobalExceptionHandler {
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleMethodArgumentNotValidException(MethodArgumentNotValidException ex) {
-        Map<String, Object> response = new HashMap<>();
-        Map<String, String> details = new HashMap<>();
 
-        ex.getBindingResult().getFieldErrors().forEach(error ->
-                details.put(error.getField(), error.getDefaultMessage())
+    // Handle all Business Error (AppException)
+    @ExceptionHandler(value = AppException.class)
+    ResponseEntity<ApiResponse<Void>> handlingAppException(AppException exception) {
+        ErrorCode errorCode = exception.getErrorCode();
+
+        ApiResponse<Void> apiResponse = ApiResponse.<Void>builder()
+                .code(errorCode.getCode())
+                .message(exception.getMessage())
+                .build();
+
+        return ResponseEntity
+                .status(errorCode.getStatusCode())
+                .body(apiResponse);
+    }
+
+    // Handle Validation Error (@Valid)
+    @ExceptionHandler(value = MethodArgumentNotValidException.class)
+    ResponseEntity<ApiResponse<Map<String, String>>> handlingValidation(MethodArgumentNotValidException exception) {
+        Map<String, String> errors = new HashMap<>();
+
+        exception.getBindingResult().getFieldErrors().forEach(error ->
+                errors.put(error.getField(), error.getDefaultMessage())
         );
 
-        response.put("timestamp", LocalDateTime.now());
-        response.put("status", HttpStatus.BAD_REQUEST.value());
-        response.put("error", "Validation Error");
-        response.put("message", "Input data is invalid");
-        response.put("details", details);
-
-        return ResponseEntity.badRequest().body(response);
+        return ResponseEntity.badRequest().body(
+                ApiResponse.<Map<String, String>>builder()
+                        .code(ErrorCode.INVALID_KEY.getCode())
+                        .message("Validation failed")
+                        .result(errors)
+                        .build()
+        );
     }
 
-    @ExceptionHandler(EmailAlreadyExistsException.class)
-    public ResponseEntity<Map<String, Object>> handleEmailAlreadyExistsException(EmailAlreadyExistsException ex) {
-        log.warn("Email Already Exists: {}", ex.getMessage());
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now());
-        response.put("status", HttpStatus.BAD_REQUEST.value());
-        response.put("error", "Conflict");
-        response.put("message", ex.getMessage());
-
-        return ResponseEntity.badRequest().body(response);
-    }
-
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<Map<String, Object>> handleResourceNotFound(ResourceNotFoundException ex) {
-        log.error("Resource not found exception: {}", ex.getMessage());
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now());
-        response.put("status", HttpStatus.NOT_FOUND.value());
-        response.put("error", "Not Found");
-        response.put("message", ex.getMessage());
-
-        return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
-    }
-
-    @ExceptionHandler(AccountNotVerifiedException.class)
-    public ResponseEntity<Object> handleAccountNotVerified(AccountNotVerifiedException ex) {
-        log.error("Account Not Verified: {}", ex.getMessage());
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now());
-        response.put("status", HttpStatus.FORBIDDEN.value());
-        response.put("error", "Account Not Verified");
-        response.put("message", ex.getMessage());
-
-        return  new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
-    }
-
-    @ExceptionHandler(AccountNotVerifiedException.class)
-    public ResponseEntity<Object> handleRefreshTokenExpired(RefreshTokenExpiredException ex) {
-        log.error("Refresh Token Expired: {}", ex.getMessage());
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now());
-        response.put("status", HttpStatus.FORBIDDEN.value());
-        response.put("error", "Refresh Token Expired");
-        response.put("message", ex.getMessage());
-
-        return  new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
+    // Unknown Error (Fallback)
+    @ExceptionHandler(value = Exception.class)
+    ResponseEntity<ApiResponse<Void>> handlingRuntimeException(Exception exception) {
+        return ResponseEntity.badRequest().body(
+                ApiResponse.<Void>builder()
+                        .code(ErrorCode.UNCATEGORIZED_EXCEPTION.getCode())
+                        .message(exception.getMessage())
+                        .build()
+        );
     }
 }
