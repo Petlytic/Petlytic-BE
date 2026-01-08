@@ -1,16 +1,14 @@
 package com.petlytic.controllers;
 
 import com.petlytic.dtos.requests.*;
+import com.petlytic.dtos.responses.ApiResponse;
 import com.petlytic.dtos.responses.LoginResponse;
 import com.petlytic.dtos.responses.UserResponseDTO;
 import com.petlytic.services.AuthenticationService;
-
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseCookie;
-import org.springframework.web.bind.annotation.CookieValue;
-
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,51 +19,50 @@ public class AuthenticationController {
     private final AuthenticationService authenticationService;
 
     @PostMapping("/signup")
-    public ResponseEntity<UserResponseDTO> register(@RequestBody @Valid RegisterUserDTO registerUserDto) {
+    public ResponseEntity<ApiResponse<UserResponseDTO>> register(@RequestBody @Valid RegisterUserDTO registerUserDto) {
         UserResponseDTO registeredUser = authenticationService.signup(registerUserDto);
-        return ResponseEntity.ok(registeredUser);
+
+        return ResponseEntity.ok(ApiResponse.<UserResponseDTO>builder()
+                .result(registeredUser)
+                .message("User registered successfully")
+                .build());
     }
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> authenticate(@RequestBody LoginUserDTO loginUserDto) {
+    public ResponseEntity<ApiResponse<LoginResponse>> authenticate(@RequestBody LoginUserDTO loginUserDto) {
         LoginResponse loginResponse = authenticationService.authenticate(loginUserDto);
 
-        // Create HttpOnly Cookie
-        ResponseCookie cookie = ResponseCookie.from("refresh_token", loginResponse.getRefreshToken())
-                .httpOnly(true)
-                .secure(true)
-                .path("/")
-                .maxAge(604800)
-                .sameSite("Strict")
-                .build();
+        ResponseCookie cookie = createRefreshTokenCookie(loginResponse.getRefreshToken());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(loginResponse);
+                .body(ApiResponse.<LoginResponse>builder()
+                        .result(loginResponse)
+                        .message("Login successfully")
+                        .build());
     }
 
     @PostMapping("/verify")
-    public ResponseEntity<?> verifyUser(@RequestBody VerifyUserDTO verifyUserDto) {
-        try {
-            authenticationService.verifyUser(verifyUserDto);
-            return ResponseEntity.ok("Account verified successfully");
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
+    public ResponseEntity<ApiResponse<Void>> verifyUser(@RequestBody @Valid VerifyUserDTO verifyUserDto) {
+        authenticationService.verifyUser(verifyUserDto);
+
+        return ResponseEntity.ok(ApiResponse.<Void>builder()
+                .message("Account verified successfully")
+                .build());
     }
 
+    // @RateLimited(maxAttempts = 3, duration = 15, unit = TimeUnit.MINUTES)
     @PostMapping("/resend")
-    public ResponseEntity<?> resendVerificationCode(@RequestParam String email) {
-        try {
-            authenticationService.resendVerificationCode(email);
-            return ResponseEntity.ok("Verification code sent");
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
-        }
+    public ResponseEntity<ApiResponse<Void>> resendVerificationCode(@RequestBody @Valid ResendVerificationDTO resendVerificationDTO) {
+        authenticationService.resendVerificationCode(resendVerificationDTO.getEmail());
+
+        return ResponseEntity.ok(ApiResponse.<Void>builder()
+                .message("Verification code sent to " + resendVerificationDTO.getEmail())
+                .build());
     }
 
     @PostMapping("/refresh-token")
-    public ResponseEntity<LoginResponse> refreshToken(
+    public ResponseEntity<ApiResponse<LoginResponse>> refreshToken(
             @CookieValue(name = "refresh_token") String refreshToken
     ) {
         RefreshTokenDTO refreshTokenDTO = new RefreshTokenDTO();
@@ -73,21 +70,62 @@ public class AuthenticationController {
 
         LoginResponse loginResponse = authenticationService.refreshToken(refreshTokenDTO);
 
-        ResponseCookie newCookie = ResponseCookie.from("refresh_token", loginResponse.getRefreshToken())
+        ResponseCookie newCookie = createRefreshTokenCookie(loginResponse.getRefreshToken());
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, newCookie.toString())
+                .body(ApiResponse.<LoginResponse>builder()
+                        .result(loginResponse)
+                        .message("Token refreshed successfully")
+                        .build());
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<ApiResponse<LoginResponse>> loginWithGoogle(@RequestBody GoogleLoginDTO googleLoginDTO) {
+        LoginResponse response = authenticationService.loginWithGoogle(googleLoginDTO);
+
+        ResponseCookie newCookie = createRefreshTokenCookie(response.getRefreshToken());
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, newCookie.toString())
+                .body(ApiResponse.<LoginResponse>builder()
+                        .result(response)
+                        .message("Google login successfully")
+                        .build());
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @CookieValue(name = "refresh_token", required = false) String refreshToken
+    ) {
+        if (refreshToken != null) {
+            authenticationService.logout(refreshToken);
+        }
+
+        ResponseCookie cleanCookie = ResponseCookie.from("refresh_token", "")
                 .httpOnly(true)
-                .secure(true)
+                .secure(false)
                 .path("/")
-                .maxAge(604800)
+                .maxAge(0)
                 .sameSite("Strict")
                 .build();
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, newCookie.toString())
-                .body(loginResponse);
+                .header(HttpHeaders.SET_COOKIE, cleanCookie.toString())
+                .body(ApiResponse.<Void>builder()
+                        .message("Logged out successfully")
+                        .build());
     }
 
-    @PostMapping("/google")
-    public ResponseEntity<LoginResponse> loginWithGoogle(@RequestBody GoogleLoginDTO googleLoginDTO) {
-        return ResponseEntity.ok(authenticationService.loginWithGoogle(googleLoginDTO));
+    // Private Helpers
+
+    private ResponseCookie createRefreshTokenCookie(String refreshToken) {
+        return ResponseCookie.from("refresh_token", refreshToken)
+                .httpOnly(true)
+                .secure(false) //false when localhost, true if production
+                .path("/")
+                .maxAge(604800) // 7 days
+                .sameSite("Strict")
+                .build();
     }
 }
