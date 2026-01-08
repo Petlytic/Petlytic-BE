@@ -17,13 +17,14 @@ public enum ErrorCode {
     USER_EXISTED(1003, "User already exists", HttpStatus.CONFLICT),
 
     // Account Status Errors
-    NOT_VERIFIED(1004, "Account is not verified. Please check your email.", HttpStatus.FORBIDDEN),
-    ACCOUNT_ALREADY_VERIFIED(1005, "Account has already been verified", HttpStatus.BAD_REQUEST),
+    ACCOUNT_NOT_VERIFIED(1004, "Account email has not been verified", HttpStatus.FORBIDDEN),
+    ACCOUNT_ALREADY_VERIFIED(1005, "Account has already been verified", HttpStatus.CONFLICT),
     CODE_EXPIRED(1008, "Verification code has expired", HttpStatus.BAD_REQUEST),
 
     // Authentication Errors
-    UNAUTHENTICATED(1006, "Email or password is incorrect", HttpStatus.UNAUTHORIZED),
+    INVALID_CREDENTIALS(1006, "Invalid email or password", HttpStatus.UNAUTHORIZED),
     GOOGLE_LOGIN_FAILED(1009, "Google login failed", HttpStatus.UNAUTHORIZED),
+    MAIL_VERIFICATION_FAILED(1012, "Email verification failed", HttpStatus.BAD_REQUEST),
 
     // Session / Token Errors
     TOKEN_EXPIRED(1007, "Session has expired", HttpStatus.UNAUTHORIZED),

@@ -137,7 +137,9 @@ public class AuthenticationService {
         user.setActive(false);
 
         User savedUser = userRepository.save(user);
+
         String code = generateVerificationCode();
+
         VerificationToken token = VerificationToken.builder()
                 .user(savedUser)
                 .verificationCode(code)
@@ -145,7 +147,13 @@ public class AuthenticationService {
                 .build();
         verificationTokenRepository.save(token);
 
-        sendVerificationEmail(user, code);
+        try {
+            sendVerificationEmail(user, code);
+        } catch (Exception e) {
+            log.error("Failed to send verification email to {}", user.getEmail(), e);
+
+            throw new AppException(ErrorCode.MAIL_VERIFICATION_FAILED);
+        }
 
         return userMapper.toUserResponse(savedUser);
     }
@@ -207,10 +215,10 @@ public class AuthenticationService {
                     .build();
 
         } catch (DisabledException e) {
-            throw new AppException(ErrorCode.NOT_VERIFIED);
+            throw new AppException(ErrorCode.ACCOUNT_NOT_VERIFIED);
 
         } catch (BadCredentialsException e) {
-            throw new AppException(ErrorCode.UNAUTHENTICATED);
+            throw new AppException(ErrorCode.INVALID_CREDENTIALS);
         }
     }
 
