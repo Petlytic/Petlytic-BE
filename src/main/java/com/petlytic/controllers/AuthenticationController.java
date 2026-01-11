@@ -117,6 +117,19 @@ public class AuthenticationController {
                         .build());
     }
 
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@RequestBody ForgotPasswordDTO dto) {
+        authenticationService.forgotPassword(dto);
+        return ResponseEntity.ok("Reset code sent to email");
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordDTO dto) {
+        authenticationService.resetPassword(dto);
+        return ResponseEntity.ok("Password reset successfully");
+    }
+
+
     // Private Helpers
 
     private ResponseCookie createRefreshTokenCookie(String refreshToken) {

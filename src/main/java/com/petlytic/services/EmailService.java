@@ -23,4 +23,17 @@ public class EmailService {
 
         emailSender.send(message);
     }
+
+    public void sendResetPasswordEmail(String to, String code) throws MessagingException {
+        String subject = "Reset Your Password";
+        String html = """
+        <h2>Password Reset</h2>
+        <p>Your reset code is:</p>
+        <h3>%s</h3>
+        <p>This code expires in 15 minutes.</p>
+        """.formatted(code);
+
+        sendVerificationEmail(to, subject, html);
+    }
+
 }

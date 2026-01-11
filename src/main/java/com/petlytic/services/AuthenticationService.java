@@ -9,12 +9,14 @@ import com.petlytic.dtos.responses.LoginResponse;
 import com.petlytic.dtos.responses.UserResponseDTO;
 import com.petlytic.exceptions.*;
 import com.petlytic.mapper.UserMapper;
+import com.petlytic.models.PasswordResetToken;
 import com.petlytic.models.RefreshToken;
 import com.petlytic.models.User;
 import com.petlytic.models.VerificationToken;
 import com.petlytic.models.enums.ErrorCode;
 import com.petlytic.models.enums.ResourceType;
 import com.petlytic.models.enums.Role;
+import com.petlytic.repositories.PasswordResetTokenRepository;
 import com.petlytic.repositories.RefreshTokenRepository;
 import com.petlytic.repositories.UserRepository;
 import com.petlytic.repositories.VerificationTokenRepository;
@@ -45,6 +47,7 @@ public class AuthenticationService {
     private final UserRepository userRepository;
     private final VerificationTokenRepository verificationTokenRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final EmailService emailService;
@@ -261,6 +264,53 @@ public class AuthenticationService {
         sendVerificationEmail(user, code);
     }
 
+    @Transactional
+    public void forgotPassword(ForgotPasswordDTO input) {
+        User user = userRepository.findByEmail(input.getEmail())
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, ResourceType.USER));
+
+        passwordResetTokenRepository.deleteAllByUser(user);
+
+        String code = generateVerificationCode();
+
+        PasswordResetToken token = PasswordResetToken.builder()
+                .user(user)
+                .resetCode(code)
+                .expiresAt(LocalDateTime.now().plusMinutes(15))
+                .used(false)
+                .build();
+
+        passwordResetTokenRepository.save(token);
+
+        try {
+            emailService.sendResetPasswordEmail(user.getEmail(), code);
+        } catch (MessagingException e) {
+            throw new AppException(ErrorCode.MAIL_VERIFICATION_FAILED);
+        }
+    }
+
+    @Transactional
+    public void resetPassword(ResetPasswordDTO input) {
+        User user = userRepository.findByEmail(input.getEmail())
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, ResourceType.USER));
+
+        PasswordResetToken token =
+                passwordResetTokenRepository
+                        .findByUserAndResetCode(user, input.getResetCode())
+                        .orElseThrow(() -> new AppException(ErrorCode.INVALID_KEY));
+
+        if (token.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new AppException(ErrorCode.CODE_EXPIRED);
+        }
+
+        user.setPassword(passwordEncoder.encode(input.getNewPassword()));
+        userRepository.save(user);
+
+        token.setUsed(true);
+        passwordResetTokenRepository.save(token);
+    }
+
+
     public void logout(String refreshToken) {
         var storedToken = refreshTokenRepository.findByToken(refreshToken)
                 .orElse(null);
@@ -321,4 +371,6 @@ public class AuthenticationService {
         });
         refreshTokenRepository.saveAll(validUserTokens);
     }
+
+
 }
