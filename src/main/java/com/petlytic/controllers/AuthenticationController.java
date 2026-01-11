@@ -5,6 +5,7 @@ import com.petlytic.dtos.responses.ApiResponse;
 import com.petlytic.dtos.responses.LoginResponse;
 import com.petlytic.dtos.responses.UserResponseDTO;
 import com.petlytic.services.AuthenticationService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RequestMapping("/auth")
 @RestController
+@Tag(name = "Auth", description = "Authentication endpoints")
 @RequiredArgsConstructor
 public class AuthenticationController {
     private final AuthenticationService authenticationService;
