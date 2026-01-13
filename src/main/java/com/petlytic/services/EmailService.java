@@ -24,6 +24,7 @@ public class EmailService {
         emailSender.send(message);
     }
 
+    @Async
     public void sendResetPasswordEmail(String to, String code) throws MessagingException {
         String subject = "Reset Your Password";
         String html = """
