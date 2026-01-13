@@ -54,6 +54,9 @@ public class AuthenticationService {
     @Value("${spring.security.oauth2.client.registration.google.client-id}")
     private String googleClientId;
 
+    @Value("${user.default-avatar}")
+    private String defaultAvatarUrl;
+
     private GoogleIdTokenVerifier verifier;
 
     @PostConstruct
@@ -135,6 +138,9 @@ public class AuthenticationService {
         user.setPassword(passwordEncoder.encode(input.getPassword()));
         user.setRole(Role.CUSTOMER);
         user.setActive(false);
+        if (user.getAvatarUrl() == null || user.getAvatarUrl().isEmpty()) {
+            user.setAvatarUrl(defaultAvatarUrl);
+        }
 
         User savedUser = userRepository.save(user);
 
@@ -148,7 +154,7 @@ public class AuthenticationService {
         verificationTokenRepository.save(token);
 
         try {
-            sendVerificationEmail(user, code);
+            emailService.sendVerificationEmail(user.getEmail(), code);
         } catch (Exception e) {
             log.error("Failed to send verification email to {}", user.getEmail(), e);
 
@@ -258,7 +264,7 @@ public class AuthenticationService {
                 .build();
         verificationTokenRepository.save(newToken);
 
-        sendVerificationEmail(user, code);
+        emailService.sendVerificationEmail(user.getEmail(), code);
     }
 
     public void logout(String refreshToken) {
@@ -268,29 +274,6 @@ public class AuthenticationService {
         if (storedToken != null) {
             storedToken.setRevoked(true);
             refreshTokenRepository.save(storedToken);
-        }
-    }
-
-    private void sendVerificationEmail(User user, String verificationCode) {
-        String subject = "Account Verification";
-        String htmlMessage = "<html>"
-                + "<body style=\"font-family: Arial, sans-serif;\">"
-                + "<div style=\"background-color: #f5f5f5; padding: 20px;\">"
-                + "<h2 style=\"color: #333;\">Welcome to our app!</h2>"
-                + "<p style=\"font-size: 16px;\">Please enter the verification code below to continue:</p>"
-                + "<div style=\"background-color: #fff; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1);\">"
-                + "<h3 style=\"color: #333;\">Verification Code:</h3>"
-                + "<p style=\"font-size: 18px; font-weight: bold; color: #007bff;\">" + verificationCode + "</p>"
-                + "</div>"
-                + "</div>"
-                + "</body>"
-                + "</html>";
-
-        try {
-            emailService.sendVerificationEmail(user.getEmail(), subject, htmlMessage);
-        } catch (MessagingException e) {
-            log.error("Failed to send email to {}", user.getEmail(), e);
-            throw new AppException(ErrorCode.UNCATEGORIZED_EXCEPTION);
         }
     }
 
