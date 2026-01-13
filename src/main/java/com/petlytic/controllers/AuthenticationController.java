@@ -118,17 +118,30 @@ public class AuthenticationController {
     }
 
     @PostMapping("/forgot-password")
-    public ResponseEntity<?> forgotPassword(@RequestBody ForgotPasswordDTO dto) {
+    public ResponseEntity<ApiResponse<Void>> forgotPassword(
+            @RequestBody ForgotPasswordDTO dto) {
+
         authenticationService.forgotPassword(dto);
-        return ResponseEntity.ok("Reset code sent to email");
+
+        return ResponseEntity.ok(
+                ApiResponse.<Void>builder()
+                        .message("Reset code sent to email")
+                        .build()
+        );
     }
 
     @PostMapping("/reset-password")
-    public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordDTO dto) {
-        authenticationService.resetPassword(dto);
-        return ResponseEntity.ok("Password reset successfully");
-    }
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @RequestBody ResetPasswordDTO dto) {
 
+        authenticationService.resetPassword(dto);
+
+        return ResponseEntity.ok(
+                ApiResponse.<Void>builder()
+                        .message("Password reset successfully")
+                        .build()
+        );
+    }
 
     // Private Helpers
 
