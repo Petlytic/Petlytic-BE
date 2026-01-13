@@ -5,6 +5,7 @@ import com.petlytic.dtos.responses.ApiResponse;
 import com.petlytic.dtos.responses.LoginResponse;
 import com.petlytic.dtos.responses.UserResponseDTO;
 import com.petlytic.services.AuthenticationService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RequestMapping("/auth")
 @RestController
+@Tag(name = "Auth", description = "Authentication endpoints")
 @RequiredArgsConstructor
 public class AuthenticationController {
     private final AuthenticationService authenticationService;
@@ -115,6 +117,32 @@ public class AuthenticationController {
                 .body(ApiResponse.<Void>builder()
                         .message("Logged out successfully")
                         .build());
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<ApiResponse<Void>> forgotPassword(
+            @RequestBody ForgotPasswordDTO dto) {
+
+        authenticationService.forgotPassword(dto);
+
+        return ResponseEntity.ok(
+                ApiResponse.<Void>builder()
+                        .message("Reset code sent to email")
+                        .build()
+        );
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @RequestBody ResetPasswordDTO dto) {
+
+        authenticationService.resetPassword(dto);
+
+        return ResponseEntity.ok(
+                ApiResponse.<Void>builder()
+                        .message("Password reset successfully")
+                        .build()
+        );
     }
 
     // Private Helpers

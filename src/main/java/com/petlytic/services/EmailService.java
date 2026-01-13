@@ -1,7 +1,6 @@
 package com.petlytic.services;
 
 import com.petlytic.exceptions.AppException;
-import com.petlytic.models.User;
 import com.petlytic.models.enums.ErrorCode;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -43,6 +42,14 @@ public class EmailService {
         sendHtmlEmail(to, subject, html);
     }
 
+    @Async
+    public void sendResetPasswordEmail(String to, String code) throws MessagingException {
+        String subject = "Reset Your Password";
+        String html = buildResetPasswordEmailTemplate(code);
+
+        sendHtmlEmail(to, subject, html);
+    }
+
     private String buildVerificationTemplate(String code) {
         return """
             <html>
@@ -56,6 +63,26 @@ public class EmailService {
                       %s
                     </p>
                   </div>
+                </div>
+              </body>
+            </html>
+        """.formatted(code);
+    }
+
+    private String buildResetPasswordEmailTemplate(String code) {
+        return """
+            <html>
+              <body style="font-family: Arial, sans-serif;">
+                <div style="background:#f5f5f5;padding:20px">
+                  <h2>Welcome to Petlytic 🐾</h2>
+                  <h2>Password Reset</h2>
+                  <div style="background:#fff;padding:20px;border-radius:6px">
+                    <h3>Your reset code is:</h3>
+                    <p style="font-size:20px;font-weight:bold;color:#007bff;">
+                      %s
+                    </p>
+                  </div>
+                  <p>This code expires in 15 minutes.</p>
                 </div>
               </body>
             </html>

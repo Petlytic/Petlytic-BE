@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name="users")
+@Table(name = "users")
 @Setter
 @Getter
 @Builder
@@ -41,7 +41,7 @@ public class User implements UserDetails {
     @Column(name = "is_active")
     private boolean active;
 
-    @Column(name="avatar_url")
+    @Column(name = "avatar_url")
     private String avatarUrl;
 
     @CreationTimestamp
@@ -54,7 +54,6 @@ public class User implements UserDetails {
 
     @Enumerated(EnumType.STRING)
     private Role role;
-
 
     public User(String username, String email, String password) {
         this.username = username;
@@ -83,5 +82,7 @@ public class User implements UserDetails {
     }
 
     @Override
-    public boolean isEnabled() { return this.active; }
+    public boolean isEnabled() {
+        return this.active;
+    }
 }
