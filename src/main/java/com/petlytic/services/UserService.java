@@ -7,6 +7,7 @@ import com.petlytic.models.enums.ResourceType;
 import com.petlytic.repositories.UserRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -19,6 +20,9 @@ import java.util.UUID;
 public class UserService {
     private final UserRepository userRepository;
     private final CloudinaryService cloudinaryService;
+
+    @Value("${user.default-avatar}")
+    private String defaultAvatarUrl;
 
     public List<User> allUsers() {
         List<User> users = new ArrayList<>();
@@ -37,5 +41,22 @@ public class UserService {
         userRepository.save(user);
 
         return avatarUrl;
+    }
+
+    @Transactional
+    public void deleteUser(UUID userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.RESOURCE_NOT_FOUND, ResourceType.USER));
+
+        String currentAvatar = user.getAvatarUrl();
+
+        if (currentAvatar != null && !currentAvatar.equals(defaultAvatarUrl)) {
+            String publicId = cloudinaryService.getPublicIdFromUrl(currentAvatar);
+            if (publicId != null) {
+                cloudinaryService.deleteImage(publicId);
+            }
+        }
+
+        userRepository.delete(user);
     }
 }

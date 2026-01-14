@@ -9,6 +9,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -19,7 +21,7 @@ public class CloudinaryService {
         validateFile(file);
         try {
             Map uploadResult = cloudinary.uploader().upload(
-                    file.getInputStream(),
+                    file.getBytes(),
                     ObjectUtils.asMap(
                             "folder", "avatars",
                             "public_id", "user_" + userId,
@@ -27,7 +29,8 @@ public class CloudinaryService {
                             "resource_type", "image",
                             "width", 500,
                             "height", 500,
-                            "crop", "fill"
+                            "crop", "fill",
+                            "gravity", "face"
                     )
             );
 
@@ -41,7 +44,7 @@ public class CloudinaryService {
         validateFile(file);
         try {
             Map uploadResult = cloudinary.uploader().upload(
-                    file.getInputStream(),
+                    file.getBytes(),
                     ObjectUtils.asMap(
                             "folder", "products/product_" + productId,
                             "resource_type", "image"
@@ -79,13 +82,15 @@ public class CloudinaryService {
     }
 
     public String getPublicIdFromUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isEmpty()) return null;
         try {
-            int startIndex = imageUrl.lastIndexOf("/products/");
-            int endIndex = imageUrl.lastIndexOf(".");
+            Pattern pattern = Pattern.compile("upload/(?:v\\d+/)?([^.]+)");
+            Matcher matcher = pattern.matcher(imageUrl);
 
-            if(startIndex == -1) return null;
-
-            return imageUrl.substring(startIndex + 1, endIndex);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+            return null;
         } catch (Exception e) {
             return null;
         }
