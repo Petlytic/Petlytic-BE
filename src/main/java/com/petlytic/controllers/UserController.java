@@ -3,27 +3,23 @@ package com.petlytic.controllers;
 import com.petlytic.dtos.responses.ApiResponse;
 import com.petlytic.models.User;
 import com.petlytic.services.UserService;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import lombok.RequiredArgsConstructor;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
 @RequestMapping("/users")
 @RestController
+@RequiredArgsConstructor
 @Tag(name = "User", description = "User management endpoints")
-@SecurityRequirement(name = "bearerAuth")
 public class UserController {
     private final UserService userService;
-
-    public UserController(UserService userService) {
-        this.userService = userService;
-    }
 
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<User>> authenticatedUser() {
@@ -43,6 +39,19 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.<List<User>>builder()
                 .result(users)
                 .message("Users list retrieved successfully")
+                .build());
+    }
+
+    @PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ApiResponse<String>> uploadAvatar(@RequestParam("file") MultipartFile file) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        User currentUser = (User) authentication.getPrincipal();
+
+        String newAvatarUrl = userService.updateUserAvatar(currentUser.getId(), file);
+
+        return ResponseEntity.ok(ApiResponse.<String>builder()
+                .result(newAvatarUrl)
+                .message("Avatar updated successfully")
                 .build());
     }
 }
